@@ -16,6 +16,12 @@ impossible to commit.
 pip install vika-integrity     # or: copy the vika_integrity/ folder
 ```
 
+## 60 seconds, no audio
+
+`docs/demo-60s.mp4` - text-only walkthrough of the same bugs: before, cause,
+after, proof. It is a re-record of the review cycle that produced this library,
+including the two bugs that the review found rather than the author.
+
 ## What it does
 
 | Module | Problem it removes |
