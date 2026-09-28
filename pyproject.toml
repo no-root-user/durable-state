@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vika-integrity"
+version = "0.1.0"
+description = "Crash-safe writes, single-node locks and integrity verification for local AI memory files. No dependencies."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+keywords = ["atomic-write", "file-lock", "crash-safety", "ai-memory", "integrity", "local-llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: System :: Filesystems",
+]
+
+# No runtime dependencies. That is a deliberate constraint, not an accident:
+# the whole point is to protect the memory store of an offline local agent,
+# and it must keep working when pip cannot reach the internet.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.urls]
+Repository = "https://github.com/no-root-user/vika-integrity"
+Issues = "https://github.com/no-root-user/vika-integrity/issues"
+
+[tool.setuptools]
+packages = ["vika_integrity"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

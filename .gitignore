@@ -1,0 +1,23 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Packaging
+build/
+dist/
+*.egg-info/
+
+# Environments
+.venv/
+venv/
+
+# Test + coverage artefacts
+.coverage
+htmlcov/
+
+# Atomic-write temp files (should never be committed, but if a crash left one
+# behind, it is evidence, not source)
+.*.tmp
+.*.lock
+.*.lock.stale.*
