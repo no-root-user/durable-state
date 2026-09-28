@@ -102,6 +102,19 @@ kill window was too tight to matter".
 pip install -e ".[test]"
 python -m pytest tests -v
 python tests/crash_harness.py --rounds 40
+python tools\local_ci.py          # same checks, no CI needed
 ```
+
+### CI status
+
+`.github/workflows/ci.yml` is present in this repository's working tree and is
+**not yet pushed**: the deploy token in use lacks GitHub's `workflow` scope, and
+GitHub refuses workflow files from tokens without it. This is stated rather than
+hidden, and the workflow has not been renamed or shimmed to get around the
+restriction.
+
+Until it is enabled, the same suite runs locally via `tools\local_ci.py`.
+The one thing it cannot do is verify Linux and macOS - see FINDINGS, "Known
+gaps". Nothing in this README claims those platforms are demonstrated.
 
 MIT. Take it, change it, sell it - keep the license text.

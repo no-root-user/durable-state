@@ -1,0 +1,65 @@
+# The point of this workflow: do not let a claim like "works on Linux" be
+# true because the author said so. It has to be true because CI ran it.
+name: test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.11", "3.13"]
+    name: ${{ matrix.os }} / py${{ matrix.python }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Tests
+        run: python -m pytest tests -v
+
+  # Atomicity claim: a crash must never leave a half-written file. The unit
+  # tests simulate the failure; this job verifies the temp-file discipline for
+  # real, by killing a process mid-write and checking what a reader can see.
+  crash-simulation:
+    runs-on: ubuntu-latest
+    name: crash simulation (real SIGKILL)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Kill a process mid-write, repeatedly
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          python tests/crash_harness.py --rounds 40
+
+  integrity-selfcheck:
+    runs-on: ubuntu-latest
+    name: verify.py detects real damage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Self-test the verifier against a damaged copy
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          python -m pytest tests/test_verify.py -v
