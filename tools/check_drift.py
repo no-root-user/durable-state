@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Vika Integrity contributors | MIT License
 """
-Проверка расхождения: вендоренные копии против публичного источника.
+Drift detector: keep the shipped library and any vendored copy identical.
 
-Зачем: продукт (D:\\Vi\\vika_integrity) и моя живая система (D:\\Vi\\vika\\scripts)
-содержат ОДНИ И ТЕ ЖЕ строки кода в двух местах. Это гарантированный путь к
-тому, что я продам одно, а чинить буду другое - и никто не заметит, потому
-что обе копии выглядят рабочими.
+The problem it solves: when the same source lives in two places - the public
+repository and inside some other system that vendored it - the copies drift.
+Then you fix a bug in one place, keep testing against the other, and ship code
+you no longer believe in. Both copies keep looking healthy the entire time.
 
-Этот скрипт - единственная защита от такой расхождающейся правды.
-Простое сравнение хэшей: дешевле, чем разбираться потом.
+This script compares hashes and tells you which side is lying.
 
-    python tools/check_drift.py          # из vika_integrity
-    python tools/check_drift.py --strict # ненулевой код возврата при расхождении
+    python tools/check_drift.py <source-dir> <vendored-dir> [name ...]
+
+Example (a system that vendored this library):
+    python tools/check_drift.py ../../vika-integrity/vika_integrity ./vendor
+
+With no arguments it looks for a sibling checkout next to this repository and
+explains what it did. It never hardcodes anyone's private paths - the first
+version of this file did, which is exactly the kind of leak it should catch.
 """
 from __future__ import annotations
 
@@ -21,52 +26,75 @@ import hashlib
 import sys
 from pathlib import Path
 
-PAIRS = [
-    (
-        Path(r"D:\Vi\vika_integrity\vika_integrity\atomicio.py"),
-        Path(r"D:\Vi\vika\scripts\_integrity_atomicio.py"),
-    ),
-    (
-        Path(r"D:\Vi\vika_integrity\vika_integrity\locks.py"),
-        Path(r"D:\Vi\vika\scripts\_integrity_locks.py"),
-    ),
-]
+DEFAULT_NAMES = ("atomicio.py", "locks.py", "verify.py")
 
 
-def sha(p: Path) -> str:
-    return hashlib.sha256(p.read_bytes()).hexdigest()[:16]
+def sha256(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def find_sibling(root: Path) -> Path | None:
+    for parent in root.parents:
+        for candidate in (parent / "vika-integrity" / "vika_integrity", parent / "vika_integrity"):
+            if candidate.is_dir():
+                return candidate
+    return None
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--strict", action="store_true")
+    ap.add_argument("source", nargs="?", default=None, help="directory holding the authoritative files")
+    ap.add_argument("vendored", nargs="?", default=None, help="directory holding the copies")
+    ap.add_argument("names", nargs="*", default=None, help="file names to compare")
     args = ap.parse_args()
 
-    print("ПРОВЕРКА РАСХОЖДЕНИЯ: продукт <-> живая система")
+    here = Path(__file__).resolve().parent.parent
+
+    source = Path(args.source).resolve() if args.source else (here if (here / "atomicio.py").exists() else find_sibling(here))
+    if source is None:
+        print("no source directory given and none found next to this repository")
+        print("usage: python tools/check_drift.py <source-dir> <vendored-dir> [names...]")
+        return 2
+
+    if args.vendored:
+        vendored = Path(args.vendored).resolve()
+        names = args.names or list(DEFAULT_NAMES)
+    else:
+        print("drift check needs two directories")
+        print("  source  : %s" % source)
+        print("  usage   : python tools/check_drift.py %s <vendored-dir>" % source)
+        return 2
+
+    print("drift check: product <-> vendored copy")
+    print("  product : %s" % source)
+    print("  vendored: %s" % vendored)
     print("=" * 70)
-    bad = 0
-    for src, vend in PAIRS:
-        if not src.exists():
-            print("  ИСТОЧНИК НЕТ: %s" % src)
-            bad += 1
+
+    drift = 0
+    for name in names:
+        a, b = source / name, vendored / name
+        if not a.exists():
+            print("  MISSING IN PRODUCT : %s" % name)
+            drift += 1
             continue
-        if not vend.exists():
-            print("  ВЕНДОР НЕТ:   %s" % vend)
-            bad += 1
+        if not b.exists():
+            print("  MISSING IN VENDOR  : %s" % name)
+            drift += 1
             continue
-        if sha(src) == sha(vend):
-            print("  OK  %-18s == %s" % (src.name, sha(src)))
+        ha, hb = sha256(a), sha256(b)
+        if ha == hb:
+            print("  OK   %-16s %s" % (name, ha[:16]))
         else:
-            print("  РАСХОЖДЕНИЕ  %s" % src.name)
-            print("       продукт : %s  %s" % (sha(src), src))
-            print("       вендор  : %s  %s" % (sha(vend), vend))
-            print("       -> скопируй продукт в вендор и прогоняй тесты")
-            bad += 1
+            print("  DRIFT %s" % name)
+            print("         product : %s" % ha)
+            print("         vendored: %s" % hb)
+            drift += 1
+
     print("=" * 70)
-    if bad:
-        print("ИТОГ: расхождений %d" % bad)
-        return 1 if args.strict else 1
-    print("ИТОГ: копии идентичны")
+    if drift:
+        print("RESULT: %d file(s) diverged - the product and the copy are NOT the same code" % drift)
+        return 1
+    print("RESULT: identical")
     return 0
 
 

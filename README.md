@@ -102,19 +102,47 @@ kill window was too tight to matter".
 pip install -e ".[test]"
 python -m pytest tests -v
 python tests/crash_harness.py --rounds 40
-python tools\local_ci.py          # same checks, no CI needed
 ```
+
+### Before you publish or ship: audit yourself
+
+```
+python tools/audit_release.py      # personal paths, secrets, mojibake, stale manifest
+python tools/audit_selftest.py     # proves the audit can still fail
+python tools/make_manifest.py dist/ # generate checksums for what you ship
+python tools/local_ci.py           # tests + crash harness
+```
+
+`audit_release.py` is not decoration. It exists because this repository was one
+commit from being published with two defects a visitor would have found
+immediately:
+
+1. `tools/check_drift.py` - the leak detector - had hardcoded private
+   filesystem paths baked in. The auditor was itself the leak.
+2. `checksums.sha256` was committed, so it went stale on the very next commit
+   and then reported a match that was not there. An integrity tool that lies is
+   worse than none.
+
+And then the audit's own path regex was found to be dead code: it required a
+doubled backslash, so it could never match a real Windows path. The single most
+important check in the file had been passing vacuously. That is why
+`audit_selftest.py` exists: every detector must be shown firing on a known-bad
+sample before its "clean" verdict means anything.
+
+The self-test holds deliberately bad samples, so it declares itself a fixture
+(`audit-fixture:`) and the audit skips it - explicitly, and prints the exclusion
+rather than hiding it.
 
 ### CI status
 
-`.github/workflows/ci.yml` is present in this repository's working tree and is
-**not yet pushed**: the deploy token in use lacks GitHub's `workflow` scope, and
-GitHub refuses workflow files from tokens without it. This is stated rather than
-hidden, and the workflow has not been renamed or shimmed to get around the
-restriction.
+`.github/workflows/ci.yml` is present in the working tree and is **not pushed**:
+the deploy token in use lacks GitHub's `workflow` scope, and GitHub refuses
+workflow files from tokens without it. The file has not been renamed or shimmed
+to get around the restriction.
 
-Until it is enabled, the same suite runs locally via `tools\local_ci.py`.
-The one thing it cannot do is verify Linux and macOS - see FINDINGS, "Known
-gaps". Nothing in this README claims those platforms are demonstrated.
+Until that changes, `tools/local_ci.py` runs the same suite locally, and it
+prints `SUMMARY (Windows only - not a cross-platform result)` - it will not
+claim anything about platforms it has not run on. Nothing in this README claims
+Linux or macOS are demonstrated; see FINDINGS, "Known gaps".
 
 MIT. Take it, change it, sell it - keep the license text.
