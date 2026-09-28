@@ -15,6 +15,7 @@ venv/
 # Test + coverage artefacts
 .coverage
 htmlcov/
+.crash/
 
 # Atomic-write temp files (should never be committed, but if a crash left one
 # behind, it is evidence, not source)
