@@ -1,6 +1,6 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
-vika_integrity.verify - prove your files arrived intact and readable.
+durable_state.verify - prove your files arrived intact and readable.
 
 Two independent questions, one command:
   1. Did the file change since the manifest was written?  (sha256)
@@ -9,7 +9,7 @@ Two independent questions, one command:
 Binary files (.mp4, .zip, images) are checked by hash only - judging a video
 by its text encoding produces nonsense.
 
-Run:  python -m vika_integrity.verify <dir>
+Run:  python -m durable_state.verify <dir>
 Exit: 0 = intact, 1 = damaged.
 """
 from __future__ import annotations

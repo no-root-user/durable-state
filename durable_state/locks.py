@@ -1,6 +1,6 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
-vika_integrity.locks - single-node file locks with crash recovery.
+durable_state.locks - single-node file locks with crash recovery.
 
 WHY THIS EXISTS
 ---------------

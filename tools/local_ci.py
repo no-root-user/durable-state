@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
 Local CI runner - the same checks as .github/workflows/ci.yml, on whatever
 machine you happen to be on.

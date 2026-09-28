@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """Tests for verify. The point: it must FAIL on damage, not just pass on health."""
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from vika_integrity.atomicio import atomic_write_text  # noqa: E402
-from vika_integrity.verify import sha256_of, verify_dir  # noqa: E402
+from durable_state.atomicio import atomic_write_text  # noqa: E402
+from durable_state.verify import sha256_of, verify_dir  # noqa: E402
 
 
 def build(tmp_path: Path) -> Path:

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
 Tests for atomicio.
 
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from vika_integrity.atomicio import (  # noqa: E402
+from durable_state.atomicio import (  # noqa: E402
     APPEND_INLINE_MAX,
     APPEND_STRATEGY_COPY,
     APPEND_STRATEGY_INMEM,
@@ -63,7 +63,7 @@ def test_failed_write_keeps_original(tmp_path: Path, monkeypatch: pytest.MonkeyP
     p = tmp_path / "a.txt"
     atomic_write_text(p, "PRECIOUS")
 
-    import vika_integrity.atomicio as mod
+    import durable_state.atomicio as mod
 
     def boom(*a, **k):
         raise OSError("simulated power loss")

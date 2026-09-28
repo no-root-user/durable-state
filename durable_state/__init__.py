@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """Public API. Import from here, not from the modules directly."""
 
 from .atomicio import (

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
 Drift detector: keep the shipped library and any vendored copy identical.
 
@@ -11,13 +11,13 @@ you no longer believe in. Both copies keep looking healthy the entire time.
 This script compares hashes and tells you which side is lying.
 
     python tools/check_drift.py <source-dir> <vendored-dir> [name ...]
+    python tools/check_drift.py SRC VENDORED --vendored-prefix _integrity_
 
-Example (a system that vendored this library):
-    python tools/check_drift.py ../../vika-integrity/vika_integrity ./vendor
-
-With no arguments it looks for a sibling checkout next to this repository and
-explains what it did. It never hardcodes anyone's private paths - the first
-version of this file did, which is exactly the kind of leak it should catch.
+The prefix option exists because of a gap found by using this tool for real: the
+live system vendors these modules as _integrity_atomicio.py, so a detector that
+only looks for identically-named files compares the product against an unrelated
+shim and reports "drift" that is really a filename mismatch. A checker that
+cannot be pointed at the case you actually have is not much of a checker.
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def sha256(p: Path) -> str:
 
 def find_sibling(root: Path) -> Path | None:
     for parent in root.parents:
-        for candidate in (parent / "vika-integrity" / "vika_integrity", parent / "vika_integrity"):
+        for candidate in (parent / "durable-state" / "durable_state", parent / "durable_state"):
             if candidate.is_dir():
                 return candidate
     return None
@@ -46,6 +46,11 @@ def main() -> int:
     ap.add_argument("source", nargs="?", default=None, help="directory holding the authoritative files")
     ap.add_argument("vendored", nargs="?", default=None, help="directory holding the copies")
     ap.add_argument("names", nargs="*", default=None, help="file names to compare")
+    ap.add_argument(
+        "--vendored-prefix",
+        default="",
+        help="prefix applied to names on the vendored side, e.g. _integrity_",
+    )
     args = ap.parse_args()
 
     here = Path(__file__).resolve().parent.parent
@@ -72,13 +77,13 @@ def main() -> int:
 
     drift = 0
     for name in names:
-        a, b = source / name, vendored / name
+        a, b = source / name, vendored / (args.vendored_prefix + name)
         if not a.exists():
             print("  MISSING IN PRODUCT : %s" % name)
             drift += 1
             continue
         if not b.exists():
-            print("  MISSING IN VENDOR  : %s" % name)
+            print("  MISSING IN VENDOR  : %s" % (args.vendored_prefix + name))
             drift += 1
             continue
         ha, hb = sha256(a), sha256(b)
@@ -86,8 +91,8 @@ def main() -> int:
             print("  OK   %-16s %s" % (name, ha[:16]))
         else:
             print("  DRIFT %s" % name)
-            print("         product : %s" % ha)
-            print("         vendored: %s" % hb)
+            print("         product : %s  %s" % (ha[:16], a))
+            print("         vendored: %s  %s" % (hb[:16], b))
             drift += 1
 
     print("=" * 70)

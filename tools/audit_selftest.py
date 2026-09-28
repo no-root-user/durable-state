@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 # audit-fixture: holds deliberately bad samples by design, so it is excluded
 # from tools/audit_release.py. Fake tokens and fake home paths are the point.
 """
@@ -39,7 +39,7 @@ CASES = [
     ("replacement char", 'X = "' + chr(0xFFFD) + '"', True),
     # must NOT fire - the detector has to stay usable
     ("url with slash", 'URL = "https://example.com/path/to/file"', False),
-    ("relative path", 'P = "vika_integrity/atomicio.py"', False),
+    ("relative path", 'P = "durable_state/atomicio.py"', False),
     ("regex example in docs", 'R = r"[A-Za-z]:\\\\" + os.sep', False),
     ("prose about windows", 'TXT = "write to D: drive, then run"', False),
     ("utf8 cyrillic", 'X = "\u041f\u0440\u0438\u0432\u0435\u0442"', False),

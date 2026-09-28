@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
 Tests for locks.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from vika_integrity.locks import (  # noqa: E402
+from durable_state.locks import (  # noqa: E402
     EMPTY_GRACE,
     FileLock,
     LockBusy,

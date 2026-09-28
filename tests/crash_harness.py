@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
 Crash harness: kill a writer mid-write and prove readers never see garbage.
 
@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from vika_integrity.atomicio import atomic_write_text  # noqa: E402
+from durable_state.atomicio import atomic_write_text  # noqa: E402
 
 OLD = "OLD-CONTENT\n" * 2000
 NEW = "NEW-CONTENT\n" * 40000  # ~500 KB: long enough to be killed mid-write

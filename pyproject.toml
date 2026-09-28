@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vika-integrity"
+name = "durable-state"
 version = "0.1.0"
 description = "Crash-safe writes, single-node locks and integrity verification for local AI memory files. No dependencies."
 readme = "README.md"
@@ -34,11 +34,11 @@ dependencies = []
 test = ["pytest>=7.0"]
 
 [project.urls]
-Repository = "https://github.com/no-root-user/vika-integrity"
-Issues = "https://github.com/no-root-user/vika-integrity/issues"
+Repository = "https://github.com/no-root-user/durable-state"
+Issues = "https://github.com/no-root-user/durable-state/issues"
 
 [tool.setuptools]
-packages = ["vika_integrity"]
+packages = ["durable_state"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

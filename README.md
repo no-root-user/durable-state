@@ -1,4 +1,4 @@
-# vika-integrity
+# durable-state
 
 Crash-safe writes, single-node locks, and integrity verification for local AI
 memory files. Zero dependencies, Python 3.9+.
@@ -13,7 +13,7 @@ This library makes those three failures impossible to miss, and two of them
 impossible to commit.
 
 ```
-pip install vika-integrity     # or: copy the vika_integrity/ folder
+pip install durable-state     # or: copy the durable_state/ folder
 ```
 
 ## 60 seconds, no audio
@@ -31,7 +31,7 @@ including the two bugs that the review found rather than the author.
 | `verify` | "Did my files arrive intact, and are they the encoding I think?" |
 
 ```python
-from vika_integrity import atomic_write_json, FileLock, verify_dir
+from durable_state import atomic_write_json, FileLock, verify_dir
 
 with FileLock(lock_dir, "memory_graph"):
     atomic_write_json(path / "memory_graph.json", state)   # never half-written
@@ -90,7 +90,7 @@ inspection. That is in `FINDINGS.md` with the full list.
 ## Verification is part of the product
 
 ```
-python -m vika_integrity.verify <dir>     # exit 0 = intact, 1 = damaged
+python -m durable_state.verify <dir>     # exit 0 = intact, 1 = damaged
 ```
 
 Checks SHA-256 against a manifest *and* strict UTF-8 without BOM. Binary files

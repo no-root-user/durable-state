@@ -1,6 +1,6 @@
-# Copyright (c) 2026 Vika Integrity contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
-vika_integrity.atomicio - crash-safe file writes.
+durable_state.atomicio - crash-safe file writes.
 
 WHY THIS EXISTS
 ---------------
