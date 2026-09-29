@@ -21,10 +21,17 @@ the cheap answer, but a naive one has three failure modes:
 
 SCOPE - READ THIS BEFORE DEPLOYING
 ----------------------------------
-SINGLE NODE, LOCAL FILESYSTEM ONLY. Verified on Windows (NTFS) and Linux
-(ext4). Specifically NOT safe on NFS: `O_EXCL` on NFS is not guaranteed
-atomic (historically it is a plain open() on some servers), so two hosts can
-both create the lock. If your agents run on several machines over a network
+SINGLE NODE, LOCAL FILESYSTEM ONLY. Verified on Windows (NTFS) only. Linux
+(ext4) and macOS are expected to work, because the design uses `O_EXCL` and
+unlink, but nothing here has been run and watched on either - treat them as
+reasoned about, not demonstrated. Finding 9 is the reason that distinction
+is not academic: its self-deadlock comes from Windows refusing to unlink a
+file that any process holds open, which POSIX does not do, so the bug is
+invisible there and cannot be found by reasoning from the Linux behaviour.
+
+Specifically NOT safe on NFS: `O_EXCL` on NFS is not guaranteed atomic
+(historically it is a plain open() on some servers), so two hosts can both
+create the lock. If your agents run on several machines over a network
 filesystem, use Redis, a database, or a real lock service. See FINDINGS.md.
 """
 from __future__ import annotations

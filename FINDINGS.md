@@ -17,12 +17,17 @@ a list of eight equal-looking items is marketing, not engineering.
 | 7 | minor | outside reviewer | package integrity |
 | 8 | minor | self | package integrity |
 | 9 | **major, now fixed** | self | locks (liveness) |
+| 10 | **documentation, now fixed** | outside review | scope claims |
 
-Findings 1-9 are fixed and each carries its own proof. Finding 9 took the
+Findings 1-10 are fixed and each carries its own proof. Finding 9 took the
 longest: it was documented as "cause unknown" for a while, and that conclusion
 turned out to rest on an instrument that was switched off during the very runs
 it was supposed to explain. The retraction is kept in place, because a wrong
 conclusion recorded honestly is more useful than a deletion.
+
+Finding 10 is a false claim in prose, which no test can catch. It is in this
+list because the point of this file is not only what the code does, but what we
+have said about the code.
 
 ---
 
@@ -306,6 +311,62 @@ but "probably" is why the deterministic one is the one that carries the claim.
 so a process can no longer find its own live PID in a lock it should be able to
 take. Cause identified, mechanism reproduced by a test that fails on the old
 code, and the previous "cause unknown" conclusion retracted.
+
+---
+
+## 10. FIXED - the module docstring claimed a platform nobody had tested on
+
+Found while reading someone else's review of finding 9, not by any test. The
+review praised the fix, and this is the kind of review that usually hides in
+the noise, so the only reason it surfaced is that the claim was checked rather
+than enjoyed.
+
+**WAS**
+
+`locks.py` opened with:
+
+```
+SINGLE NODE, LOCAL FILESYSTEM ONLY. Verified on Windows (NTFS) and Linux
+(ext4).
+```
+
+Linux was never verified. In the same repository, at the same commit:
+
+- `README.md` said "Verified on Windows (NTFS), and honestly nowhere else yet";
+- `FINDINGS.md` said Linux/macOS behaviour is "asserted by CI, not yet
+  confirmed by a run this author watched pass";
+- the CI workflow had never executed, because the token carries no `workflow`
+  scope.
+
+Three files agreed and one lied, and the one that lied was the one a user
+reads first if they read anything. `git log -S` put the claim in `c321841` -
+the rename commit - so it was there from the moment the project became public,
+carried forward by nobody re-reading the scope.
+
+**WHY IT MATTERED MORE AFTER FINDING 9**
+
+Finding 9 was fixed, and its cause is a platform difference: Windows refuses to
+`unlink` a file that any process holds open, POSIX does not. So the bug could
+only ever have been found by running on Windows. Had the docstring been right -
+"verified on ext4" - the natural next step would have been to treat Linux as
+the boring case and Windows as the exotic one. It is the reverse. The one
+platform where the suite actually runs is the one with the interesting
+failure mode, and the platform nobody tested is the one that would have hidden
+it.
+
+**NOW**
+
+The scope says Windows (NTFS) only, names Linux and macOS as reasoned about but
+not demonstrated, and cites finding 9 as the reason that distinction is not
+pedantry. `tests/test_locks.py` skips its blocking-delete regression on
+non-Windows rather than pretending the platform behaves the same way.
+
+**The uncomfortable part, kept on purpose:** no test can catch this class. A
+false claim in prose is invisible to a test suite, to an audit, and to CI. It
+was found by one sentence of cross-reading, by a reader who had no reason to
+suspect it. The same cross-reading found a `KeyError` in a shipped bundle
+earlier. Both times the defect was a sentence nobody had re-read since writing
+it, and both times no amount of green output would have told us.
 
 ---
 
