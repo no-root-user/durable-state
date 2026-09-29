@@ -13,8 +13,16 @@ This library makes those three failures impossible to miss, and two of them
 impossible to commit.
 
 ```
-pip install durable-state     # or: copy the durable_state/ folder
+pip install "durable-state @ git+https://github.com/no-root-user/durable-state.git"
 ```
+
+That is the whole install story, and it is worth being precise about why: **this
+is not on PyPI.** There is no `pip install durable-state` and there is no wheel
+to download. If a command you found elsewhere says otherwise, that page is
+wrong - or describes a package that is not this one. Installing from GitHub is
+the supported path until a release is published to an index.
+
+No runtime dependencies. Python 3.9+.
 
 ## 60 seconds, no audio
 
@@ -75,15 +83,26 @@ inspection. That is in `FINDINGS.md` with the full list.
 
 - **Single node, local filesystem only.** The lock uses `O_EXCL`, which is *not*
   guaranteed atomic on NFS. Do not use it across machines over a network
-  filesystem; use Redis or a database. This is a hard boundary, not a caveat.
+  filesystem; use a real network lock service there. This is a hard boundary,
+  not a caveat.
+- **Lock liveness is not guaranteed.** Under sustained contention a writer can
+  end up unable to take a lock file it created itself, and block until its own
+  timeout, then fail with `LockBusy`. Your data is safe - no line is ever lost
+  or duplicated, and a refused writer never writes - but that write does not
+  happen. Cause unknown; instrumentation removes the symptom. Handle
+  `LockBusy` and retry. **Do not raise your timeout to "fix" it:** every
+  reproduction used a long timeout, and a longer one blocks for longer. Full
+  measurements in `FINDINGS.md`, finding 9.
 - **Lock staleness across hosts falls back to age.** The module will not trust
   a PID check for a host it cannot see, so a lock from another machine is only
   reclaimed after `STALE_PID_AGE` (300 s).
 - **`atomic_append_text` above 8 MB is O(size)** - it copies the file. The
   threshold bounds peak memory at the cost of I/O. The strategy used is
   returned, so you can log it.
-- **Verified on Windows (NTFS).** The unit tests run on Linux, macOS and Windows
-  in CI. Claims beyond what CI shows are not made.
+- **Verified on Windows (NTFS), and honestly nowhere else yet.** The suite has
+  been run on Windows only. The CI workflow that would cover Linux and macOS is
+  written but not yet running, so this project does not claim those platforms.
+  See "CI status" below.
 - **The verifier detects drift, not intent.** A hash tells you a file changed,
   not that a change was good.
 
@@ -97,10 +116,12 @@ Checks SHA-256 against a manifest *and* strict UTF-8 without BOM. Binary files
 are checked by hash only - judging an `.mp4` as text produces nonsense, which is
 exactly the kind of thing that passes review until someone trips over it.
 
-`tests/crash_harness.py` goes further: it kills a real writer process with
-`SIGKILL` at randomised moments and asserts a reader never observes a partial
-file. It includes a positive control, so "all rounds passed" cannot mean "the
-kill window was too tight to matter".
+`tests/crash_harness.py` goes further: it kills a real writer process outright
+at randomised moments and asserts a reader never observes a partial file. It
+includes a positive control, so "all rounds passed" cannot mean "the kill
+window was too tight to matter". The harness prints which kill it used, because
+`SIGKILL` does not exist on Windows: POSIX gets `os.kill(pid, SIGKILL)`, Windows
+gets `TerminateProcess`. Both are uncatchable, which is the point.
 
 ## Development
 

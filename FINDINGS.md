@@ -16,6 +16,11 @@ a list of eight equal-looking items is marketing, not engineering.
 | 6 | minor | self | session state |
 | 7 | minor | outside reviewer | package integrity |
 | 8 | minor | self | package integrity |
+| 9 | **known, unfixed** | self | locks (liveness) |
+
+Findings 1-8 are fixed and each carries its own proof. Finding 9 is **not** fixed:
+it is documented with its cause still unknown, because the evidence points at a
+timing-dependent race that disappears when instrumented.
 
 ---
 
@@ -171,13 +176,97 @@ data is caught by a word list.**
 
 ---
 
+## 9. KNOWN, NOT FIXED - a writer can deadlock on its own lock
+
+Found by this author's own stress testing, after an outside review pointed out
+that no test ever had two processes writing the same file at once. That gap is
+now closed, and closing it exposed this.
+
+**WAS**
+
+Under sustained contention, a process can end up unable to take a lock whose
+file it did not delete, and block until its own timeout expires. Measured, not
+imagined. The forensic snapshot at the moment of failure:
+
+```
+mypid=5608   blames pid=5608   age=120.02s   state=held   pid_alive=True
+start - created = -0.101s        (the process started BEFORE the lock)
+self-deadlock: True
+```
+
+The blaming PID is the blocked process's **own** PID. So this is not a stranger
+holding a lock, and not a dead holder: the process holds a lock file it created
+and cannot remove it.
+
+**IMPACT - safety is intact, liveness is not**
+
+- **No data impact.** Across every stress run: zero lost lines, zero duplicated
+  lines, zero mangled lines. A refused writer never wrote, so it owes nothing.
+  Whatever this bug does, it does not corrupt a file.
+- **The failure is a refusal.** The writer raises `LockBusy` after its timeout.
+  It never proceeds to write while the lock is held. That is the safe direction
+  to fail in.
+- **Writers that get in are never wrong.** The test asserts, per writer: one
+  that finished has every line; one that was refused may hold a prefix, but
+  never an interior gap, because an interior gap would mean a committed append
+  vanished.
+
+**RATE, as measured - configuration matters**
+
+| Configuration | Wedge rate |
+|---|---|
+| 4 writers x 25 appends, `timeout=120` | 7 of 24 runs (~29%) |
+| 6 writers x 25 appends, `timeout=45` | 0 of 9 |
+| 4 writers, with `DURABLE_STATE_DEBUG` logging on | 0 of 9 |
+
+Reproducing it needs a *long* wait. With a short timeout the writers give up
+before the race develops. This matters when reading any workaround below.
+
+**CAUSE - not identified, and the two obvious candidates are already ruled out**
+
+`release()` and `unlink()` were instrumented on every exit path (missing file,
+unreadable content, token mismatch, `unlink` failure). During wedged runs **none
+of those paths fired**, and no unlink ever failed. So the lock is not being
+left behind by a failing `release()`. The path that leaves the file is still
+unknown. Adding the logging removed the bug entirely, which is what makes this
+a heisenbug rather than a plain logic error.
+
+Two candidate explanations were tested and **disproved**, recorded here so they
+are not re-proposed later:
+
+- *PID reuse.* Windows reuses PIDs. If a dead holder's PID had been taken over
+  by a stranger, the blame would look identical. It does not happen here: the
+  blaming process started **0.101 s before** the lock was written. A recycled
+  PID would have started *after* it, so `start - created` would be positive.
+  It is negative, which means the blame is genuine.
+- *A half-written lock file.* If a reader caught the lock mid-write it would
+  fail to parse, and `lock_info` would report `state="empty"`. Every wedged
+  snapshot reported `state="held"` with a readable owner.
+
+**WHAT TO DO IF YOU HIT IT**
+
+- Handle `LockBusy` and retry with backoff. That is the whole remedy, because
+  the condition is self-clearing once the stuck process exits.
+- Keep the critical section short. The observed wedge grew with how long writers
+  were queued.
+- **Do not raise your timeout to "fix" it.** In every reproduction the timeout
+  was long; lengthening it lengthens the block. A shorter timeout fails fast
+  and the retry succeeds.
+
+**STATUS:** documented, not fixed. Safety is demonstrated; liveness is not
+guaranteed. This library promises it will not quietly lose or corrupt your data.
+It does not promise that a writer always gets in.
+
+---
+
 ## Known gaps - still open, not fixed
 
+- **Lock liveness is not guaranteed.** See finding 9: under contention a writer
+  can block on its own lock until its timeout, then fail with `LockBusy`. No
+  data is lost; the write simply does not happen. Cause unknown.
 - **NFS is not safe for locking.** `O_EXCL` is not guaranteed atomic there. Not
   tested, not claimed. The module documents the boundary; a real fix means a
   different backend.
-- **No cross-process stress test for the append path.** The crash harness covers
-  writes; concurrent appends are covered only by unit-level reasoning.
 - **The verifier detects drift, not intent.** A hash tells you a file changed,
   not that the change was an improvement. Someone with write access can corrupt
   a file and re-sign the manifest.
