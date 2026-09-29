@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "durable-state"
-version = "0.1.0"
+version = "0.1.3"
 description = "Crash-safe writes, single-node locks and integrity verification for local AI memory files. No dependencies."
 readme = "README.md"
 license = { text = "MIT" }

@@ -26,7 +26,7 @@ def __getattr__(name: str):
         return verify_dir
     raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 __all__ = [
     "atomic_write_text",
     "atomic_write_bytes",

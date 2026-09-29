@@ -381,3 +381,14 @@ it, and both times no amount of green output would have told us.
 - **Linux/macOS behaviour is asserted by CI, not yet confirmed by a run this
   author watched pass.** Until CI is green on those platforms, treat it as
   expected rather than demonstrated.
+- **Tags `v0.1.0`-`v0.1.2` carry the wrong version in their own metadata.** The
+  commits they point at have `__version__ = "0.1.0"` in
+  `durable_state/__init__.py` and `version = "0.1.0"` in `pyproject.toml`,
+  while the tags are named `v0.1.1` and `v0.1.2`. Two copies of the version
+  existed and nothing compared them, so both drifted from the tags silently -
+  the same shape as finding 10, except this one was reachable by ordinary code,
+  so a test could have caught it and none existed. Source is now `0.1.3` with
+  both copies equal, guarded by
+  `tests/test_locks.py::test_version_matches_pyproject`. The old tags cannot be
+  corrected without rewriting published history, so they are left as they are
+  and this note is the correction.

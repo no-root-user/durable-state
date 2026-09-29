@@ -292,3 +292,32 @@ def test_release_still_refuses_a_lock_we_do_not_own(tmp_path: Path) -> None:
     assert release(tmp_path, "memory", impostor) is False
     assert is_locked(tmp_path, "memory"), "released a lock we never owned"
     assert release(tmp_path, "memory", rec) is True
+
+
+def test_version_matches_pyproject(tmp_path: Path) -> None:
+    """
+    The version lived in two files and they drifted.
+
+    __init__.py said 0.1.0 while pyproject.toml said 0.1.0, and the tags said
+    0.1.2 - three numbers, no single source of truth, and nothing to notice when
+    they disagreed. The same failure as finding 10 in prose, except this one was
+    reachable by arithmetic, so it is worth a test instead of a promise.
+
+    Keeping two copies is a choice; letting them silently disagree is not.
+    """
+    import re
+    import tomllib
+
+    from durable_state import __version__
+
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    text = pyproject.read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    assert match, "pyproject.toml has no version field"
+    assert __version__ == match.group(1), (
+        "durable_state.__version__ is %r but pyproject.toml says %r. One of "
+        "them was not bumped." % (__version__, match.group(1))
+    )
+    assert re.fullmatch(r"\d+\.\d+\.\d+", __version__), (
+        "version %r is not semver" % __version__
+    )
