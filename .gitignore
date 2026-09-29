@@ -29,3 +29,8 @@ htmlcov/
 .*.tmp
 .*.lock
 .*.lock.stale.*
+
+# Unpublished article drafts. Written for Habr and kept in the private companion
+# repo so this repository does not pre-publish them. The ignore is here so a
+# draft cannot quietly reappear in a public commit.
+docs/article-*.md
