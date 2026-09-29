@@ -79,10 +79,10 @@ def test_failed_write_keeps_original(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 def test_json_roundtrip_and_utf8(tmp_path: Path) -> None:
     p = tmp_path / "m.json"
-    data = {"ключ": "значение", "n": [1, 2, 3]}
+    data = {"ключ": "значение", "n": [1, 2, 3]}  # fact-check-fixture: proves UTF-8 round-trip
     atomic_write_json(p, data)
     assert json.loads(p.read_text(encoding="utf-8")) == data
-    assert "ключ" in p.read_text(encoding="utf-8")  # not \uXXXX escaped
+    assert "ключ" in p.read_text(encoding="utf-8")  # not \uXXXX escaped  # fact-check-fixture: same proof
 
 
 def test_newlines_are_not_translated(tmp_path: Path) -> None:
