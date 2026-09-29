@@ -205,23 +205,47 @@ def _run(tmp: Path, procs: int, per_proc: int, threshold: str) -> dict:
 
 
 def _report_wedge(res: dict, record_property) -> None:
-    """Surface the known liveness defect without hiding it.
+    """A writer refused with LockBusy is now a FAILURE, not a documented defect.
 
-    Safety is already asserted unconditionally above: no line was ever lost,
-    duplicated or mangled. What can still happen is a LIVENESS failure - a
-    writer is refused with LockBusy because a lock file survived its holder.
+    This used to record the refusal and move on, because the self-deadlock in
+    finding 9 was known, unexplained, and could not be made to reproduce on
+    demand. It has since been fixed at the source: `release()` no longer gives
+    up a lock because another process happened to be reading it, so a writer
+    cannot end up blocking on its own leaked file.
 
-    That is safe by refusal, not silent corruption, so it does not fail this
-    test. It is recorded so it stays visible in the test report instead of
-    being quietly forgotten. See FINDINGS.md, "Lock liveness".
+    That changes the contract of this test. Previously safety was asserted and
+    liveness was merely observed. Now both are asserted, because a wedge here
+    means the fix regressed - and a regression that this file is allowed to
+    describe in a docstring is a regression nobody has to act on.
+
+    `timeout` is what makes a regression expensive to miss: a wedge costs the
+    full timeout, so a reappearance shows up as a slow, obvious failure rather
+    than a quiet one.
+
+    The refusal is still recorded in the test report, so if it ever comes back
+    the evidence is in the log rather than in someone's memory.
+
+    HOW MUCH THIS IS WORTH, measured rather than hoped for: running this test
+    12 times against the reverted (buggy) release() catches the regression 4
+    times, and 0 times against the fix. The race needs a reader to hold the
+    lock file open at the exact moment the owner deletes it, so one green run
+    proves nothing - here, as in finding 9, the instrument is only as good as
+    the runs that actually exercised it.
+
+    The deterministic guard is in test_locks.py
+    (test_release_completes_while_a_reader_holds_the_file_open), which forces
+    the blocking read to happen and fails every time on the old code. This test
+    is the wide net for the same bug, not the net that can be relied on.
     """
     record_property("wedge_writers", ",".join(str(p) for p in res["busy"]))
     if res["busy"]:
         WEDGE_SEEN.append(res["busy"])
-        print(
-            "\n  KNOWN DEFECT (safety intact, liveness not): %d/%d writer(s) refused "
-            "with LockBusy after a leaked lock - %s\n  See FINDINGS.md > Lock liveness.\n"
-            % (len(res["busy"]), 4, res["busy"])
+        assert not res["busy"], (
+            "%d writer(s) were refused with LockBusy on a lock that leaked past "
+            "its holder. That is the finding 9 self-deadlock returning; the fix "
+            "in release() has regressed. Safety assertions above still held - "
+            "the data is intact - but writers are being turned away. See "
+            "FINDINGS.md, finding 9." % len(res["busy"])
         )
 
 

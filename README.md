@@ -85,14 +85,14 @@ inspection. That is in `FINDINGS.md` with the full list.
   guaranteed atomic on NFS. Do not use it across machines over a network
   filesystem; use a real network lock service there. This is a hard boundary,
   not a caveat.
-- **Lock liveness is not guaranteed.** Under sustained contention a writer can
-  end up unable to take a lock file it created itself, and block until its own
-  timeout, then fail with `LockBusy`. Your data is safe - no line is ever lost
-  or duplicated, and a refused writer never writes - but that write does not
-  happen. Cause unknown; instrumentation removes the symptom. Handle
-  `LockBusy` and retry. **Do not raise your timeout to "fix" it:** every
-  reproduction used a long timeout, and a longer one blocks for longer. Full
-  measurements in `FINDINGS.md`, finding 9.
+- **Still handle `LockBusy` and retry.** The self-deadlock in finding 9 - a
+  writer blocking on a lock file it had created itself - is fixed at the source:
+  `release()` no longer abandons a lock to a concurrent reader. On one stress
+  harness that went from 10 wedged runs in 24 to 0 in 24. But `LockBusy` is
+  still a refusal, not a promise, and code that can be interrupted should not
+  assume it was never interrupted. **Do not raise your timeout to "fix" a
+  stall** - a longer timeout blocks for longer. Details in `FINDINGS.md`,
+  finding 9.
 - **Lock staleness across hosts falls back to age.** The module will not trust
   a PID check for a host it cannot see, so a lock from another machine is only
   reclaimed after `STALE_PID_AGE` (300 s).

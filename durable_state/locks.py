@@ -45,6 +45,12 @@ __all__ = ["FileLock", "LockBusy", "acquire", "release", "is_locked", "lock_info
 EMPTY_GRACE = 1.0
 # A lock whose owner PID is gone on this host is considered abandoned.
 STALE_PID_AGE = 300.0
+# How long release() keeps retrying a delete that a reader is blocking.
+# The blocker is another process running _read_owner(), which opens and closes
+# the file in microseconds. 1.0 s is roughly a million times that window, so a
+# give-up here means something is genuinely wrong, not that we were impatient.
+UNLINK_GRACE = 1.0
+UNLINK_POLL = 0.002
 
 
 class LockBusy(RuntimeError):
@@ -234,34 +240,55 @@ def release(locks_dir: str | os.PathLike, name: str, record: dict) -> bool:
     """
     path = _lock_path(locks_dir, name)
     debug = bool(os.environ.get("DURABLE_STATE_DEBUG"))
-    if not path.exists():
-        if debug:
-            _dbg("release.missing", name=name, mypid=os.getpid())
-        return False
-    current = _read_owner(path)
-    if current is None:
-        if debug:
-            _dbg("release.unreadable", name=name, mypid=os.getpid())
-        return False  # not ours any more
-    if current.get("token") != record.get("token"):
-        if debug:
-            _dbg(
-                "release.token_mismatch",
-                name=name,
-                mypid=os.getpid(),
-                my_token=record.get("token"),
-                disk_token=current.get("token"),
-                disk_pid=current.get("pid"),
-            )
-        return False  # not ours any more
-    try:
-        os.unlink(str(path))
-        return True
-    except OSError as exc:
-        if debug:
-            _dbg("release.unlink_failed", name=name, errno=exc.errno,
-                 winerr=getattr(exc, "winerror", None))
-        return False
+    my_token = record.get("token")
+    deadline = time.time() + UNLINK_GRACE
+
+    while True:
+        if not path.exists():
+            if debug:
+                _dbg("release.missing", name=name, mypid=os.getpid())
+            return False
+        current = _read_owner(path)
+        if current is None:
+            if debug:
+                _dbg("release.unreadable", name=name, mypid=os.getpid())
+            return False  # not ours any more
+        if current.get("token") != my_token:
+            if debug:
+                _dbg(
+                    "release.token_mismatch",
+                    name=name,
+                    mypid=os.getpid(),
+                    my_token=my_token,
+                    disk_token=current.get("token"),
+                    disk_pid=current.get("pid"),
+                )
+            return False  # not ours any more
+        try:
+            os.unlink(str(path))
+            return True
+        except FileNotFoundError:
+            return True  # someone removed it between our read and our unlink
+        except OSError as exc:
+            # THE WEDGE. On Windows a file that another process merely has open
+            # for reading cannot be deleted until that handle closes, and
+            # os.unlink() raises PermissionError instead of waiting. Giving up
+            # here used to leak the lock file, and the next acquire() in this
+            # same process then saw its OWN live pid in that file, called it
+            # non-stale, and blocked for the full timeout. This was finding 9.
+            #
+            # The holder is mid-inspection and closes in microseconds, so the
+            # right answer is to keep trying for a bounded moment - not to
+            # abandon the lock and let the owner deadlock on itself.
+            if time.time() >= deadline:
+                if debug:
+                    _dbg("release.unlink_gave_up", name=name, mypid=os.getpid(),
+                         errno=exc.errno, winerr=getattr(exc, "winerror", None))
+                return False
+            if debug:
+                _dbg("release.unlink_retry", name=name, mypid=os.getpid(),
+                     errno=exc.errno, winerr=getattr(exc, "winerror", None))
+            time.sleep(UNLINK_POLL)
 
 
 class FileLock:

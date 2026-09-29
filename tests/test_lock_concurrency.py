@@ -4,13 +4,14 @@ Cross-process lock tests. These exist because an external review pointed out
 that concurrency was argued in prose, and because following that up found two
 real defects that no unit test could see:
 
-  1. acquire() raised FileNotFoundError when the holder released in the window
-     between our failed O_EXCL and our staleness check. Confirmed by traceback
-     at _is_stale(), fixed there.
-  2. A leaked lock can wedge every other writer until STALE_PID_AGE (300 s),
-     because a lock whose recorded PID looks alive is not reclaimable. Mutual
-     exclusion itself held in every run - the failure mode is a clean LockBusy,
-     not corruption. See FINDINGS, "known gaps".
+   1. acquire() raised FileNotFoundError when the holder released in the window
+      between our failed O_EXCL and our staleness check. Confirmed by traceback
+      at _is_stale(), fixed there.
+   2. release() abandoned a lock whenever a contender was reading it, which on
+      Windows is most of the time. The lock file survived its holder carrying
+      that holder's own live PID, and the holder's next acquire() then blocked
+      on it until its own timeout - the finding 9 self-deadlock. Reproduced
+      deterministically in test_locks.py and fixed by retrying the delete.
 
 Mutual exclusion is measured with a single shared marker file created with
 O_CREAT|O_EXCL from inside the critical section. If the lock works, exactly one

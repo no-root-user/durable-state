@@ -16,11 +16,13 @@ a list of eight equal-looking items is marketing, not engineering.
 | 6 | minor | self | session state |
 | 7 | minor | outside reviewer | package integrity |
 | 8 | minor | self | package integrity |
-| 9 | **known, unfixed** | self | locks (liveness) |
+| 9 | **major, now fixed** | self | locks (liveness) |
 
-Findings 1-8 are fixed and each carries its own proof. Finding 9 is **not** fixed:
-it is documented with its cause still unknown, because the evidence points at a
-timing-dependent race that disappears when instrumented.
+Findings 1-9 are fixed and each carries its own proof. Finding 9 took the
+longest: it was documented as "cause unknown" for a while, and that conclusion
+turned out to rest on an instrument that was switched off during the very runs
+it was supposed to explain. The retraction is kept in place, because a wrong
+conclusion recorded honestly is more useful than a deletion.
 
 ---
 
@@ -176,17 +178,18 @@ data is caught by a word list.**
 
 ---
 
-## 9. KNOWN, NOT FIXED - a writer can deadlock on its own lock
+## 9. FIXED - a writer could deadlock on its own lock, and the instrumented build hid it
 
 Found by this author's own stress testing, after an outside review pointed out
 that no test ever had two processes writing the same file at once. That gap is
-now closed, and closing it exposed this.
+now closed, and closing it exposed this. It is now fixed, and the way it was
+diagnosed is the more useful half of the story.
 
 **WAS**
 
-Under sustained contention, a process can end up unable to take a lock whose
-file it did not delete, and block until its own timeout expires. Measured, not
-imagined. The forensic snapshot at the moment of failure:
+Under sustained contention, a process could end up unable to take a lock whose
+file it did not delete, and block until its own timeout expired. The forensic
+snapshot at the moment of failure:
 
 ```
 mypid=5608   blames pid=5608   age=120.02s   state=held   pid_alive=True
@@ -194,76 +197,120 @@ start - created = -0.101s        (the process started BEFORE the lock)
 self-deadlock: True
 ```
 
-The blaming PID is the blocked process's **own** PID. So this is not a stranger
-holding a lock, and not a dead holder: the process holds a lock file it created
-and cannot remove it.
+The blaming PID was the blocked process's **own** PID. Not a stranger, not a dead
+holder: the process held a lock file it had created and could not remove it.
 
-**IMPACT - safety is intact, liveness is not**
+**CAUSE - Windows refuses to delete a file that anyone has open for reading**
 
-- **No data impact.** Across every stress run: zero lost lines, zero duplicated
-  lines, zero mangled lines. A refused writer never wrote, so it owes nothing.
-  Whatever this bug does, it does not corrupt a file.
-- **The failure is a refusal.** The writer raises `LockBusy` after its timeout.
-  It never proceeds to write while the lock is held. That is the safe direction
-  to fail in.
-- **Writers that get in are never wrong.** The test asserts, per writer: one
-  that finished has every line; one that was refused may hold a prefix, but
-  never an interior gap, because an interior gap would mean a committed append
-  vanished.
+`os.unlink()` on Windows raises `PermissionError` if any process holds a handle
+to the file. It does not wait, and it does not say "someone is reading this". The
+contender in `acquire()` does exactly that: `_is_stale()` calls `_read_owner()`,
+which opens the lock file to read the owner's record, and holds the handle for
+the duration of the read.
 
-**RATE, as measured - configuration matters**
+So the sequence was:
 
-| Configuration | Wedge rate |
-|---|---|
-| 4 writers x 25 appends, `timeout=120` | 7 of 24 runs (~29%) |
-| 6 writers x 25 appends, `timeout=45` | 0 of 9 |
-| 4 writers, with `DURABLE_STATE_DEBUG` logging on | 0 of 9 |
+1. Process A holds the lock and calls `release()`.
+2. Process B, deciding whether A's lock is stale, opens A's lock file to read it.
+3. A's `os.unlink()` hits B's open handle and raises `PermissionError`.
+4. The old `release()` caught that `OSError` and returned `False` - treating a
+   microsecond read as a permanent condition.
+5. The lock file stayed on disk **carrying A's own live PID**.
+6. A's next `acquire()` read that PID, saw it was alive, concluded the lock was
+   not stale, and blocked for the full timeout waiting for a lock that nobody
+   else was holding.
 
-Reproducing it needs a *long* wait. With a short timeout the writers give up
-before the race develops. This matters when reading any workaround below.
+That is the self-deadlock. The blame and the blocked PID were the same number
+because they were literally the same process, looking at its own leaked file.
 
-**CAUSE - not identified, and the two obvious candidates are already ruled out**
+**THE MEASUREMENT THAT WAS WRONG, and why it was wrong**
 
-`release()` and `unlink()` were instrumented on every exit path (missing file,
-unreadable content, token mismatch, `unlink` failure). During wedged runs **none
-of those paths fired**, and no unlink ever failed. So the lock is not being
-left behind by a failing `release()`. The path that leaves the file is still
-unknown. Adding the logging removed the bug entirely, which is what makes this
-a heisenbug rather than a plain logic error.
+An earlier version of this entry concluded: "instrumentation covered every exit
+path of `release()`, and during wedged runs none of them fired, so no unlink
+ever failed." That reasoning was invalid, and the flaw is worth more than the
+bug.
 
-Two candidate explanations were tested and **disproved**, recorded here so they
-are not re-proposed later:
+`release.unlink_failed` only logs when `DURABLE_STATE_DEBUG` is set. The row
+above reading "0 of 9 with `DURABLE_STATE_DEBUG` on" is the giveaway: **enabling
+the logging made the bug disappear.** So the runs where "no path fired" were
+runs where the logging was *not* enabled, and the absence of output was read as
+evidence of absence of failure. A Heisenbug observed through an instrument that
+was switched off on the runs that mattered. The conclusion "the file is not
+being left behind by a failing `release()`" was exactly backwards, and it sent
+the search after PID reuse instead of after the unlink.
 
-- *PID reuse.* Windows reuses PIDs. If a dead holder's PID had been taken over
-  by a stranger, the blame would look identical. It does not happen here: the
-  blaming process started **0.101 s before** the lock was written. A recycled
-  PID would have started *after* it, so `start - created` would be positive.
-  It is negative, which means the blame is genuine.
-- *A half-written lock file.* If a reader caught the lock mid-write it would
-  fail to parse, and `lock_info` would report `state="empty"`. Every wedged
-  snapshot reported `state="held"` with a readable owner.
+A regression test now reproduces the old behaviour deterministically instead of
+in one run in three, and it asserts the precondition first: while the reader's
+handle is open, a plain `os.unlink()` of that path **must** raise. A pass can
+therefore not come from the platform being generous.
 
-**WHAT TO DO IF YOU HIT IT**
+**NOW**
 
-- Handle `LockBusy` and retry with backoff. That is the whole remedy, because
-  the condition is self-clearing once the stuck process exits.
-- Keep the critical section short. The observed wedge grew with how long writers
-  were queued.
-- **Do not raise your timeout to "fix" it.** In every reproduction the timeout
-  was long; lengthening it lengthens the block. A shorter timeout fails fast
-  and the retry succeeds.
+`release()` retries a blocked delete for up to `UNLINK_GRACE` (1.0 s), polling
+every 2 ms, and re-checks token ownership on every attempt so the retry cannot
+weaken the "only the owner may delete this" rule. A blocker is a reader that
+closes in microseconds, so 1.0 s is a million times the real window; a give-up
+there means something is genuinely wrong, and `release()` reports it as
+`False` rather than pretending it succeeded.
 
-**STATUS:** documented, not fixed. Safety is demonstrated; liveness is not
-guaranteed. This library promises it will not quietly lose or corrupt your data.
-It does not promise that a writer always gets in.
+`FileNotFoundError` from the unlink is now treated as success - "gone" is the
+state we were trying to reach, and a file that vanished between our ownership
+check and our delete is not our problem.
+
+**PROOF - same harness, old code vs fixed**
+
+Identical 4-writer x 25-append stress, `timeout=120`, 24 rounds, run on the same
+machine minutes apart:
+
+| Build | Rounds with a wedge | Wall time of a wedged round |
+|---|---|---|
+| old `release()` | **10 of 24** | 120 s (the full timeout) |
+| fixed `release()` | **0 of 24** | - |
+
+With the fix, every one of the 24 rounds finished in ~0.5 s instead of hanging
+for the timeout. The old build's 10/24 rate is higher than the 7/24 originally
+recorded here, which is expected: rates move with machine load, and this run was
+not trying to reproduce a specific historical number. What did not move is the
+direction: 10 of 24 versus 0 of 24, on one harness, one variable changed.
+
+Safety was asserted unconditionally in both builds and held throughout: no lost
+lines, no duplicates, no mangled lines, no interior gaps in any wedged writer.
+The bug was always a refusal, never corruption - and that is now the only thing
+left to say about it, because it no longer happens.
+
+**How much the two guards are worth, measured**
+
+Neither guard is taken on faith, because the whole entry used to be wrong for
+exactly that reason.
+
+| Guard | Reverted to old code | Fixed code |
+|---|---|---|
+| `test_release_completes_while_a_reader_holds_the_file_open` (deterministic) | fails every time | passes |
+| `test_concurrent_append_inmemory`, 12 runs | caught in 4 | caught in 0 |
+
+The cross-process test is a wide net, not a reliable one: the race needs a
+reader to be holding the lock file at the instant the owner deletes it, so it
+finds the bug about a third of the time. The unit test forces that moment to
+happen and fails every time. If this bug ever comes back in a way the unit test
+does not catch, the cross-process test will probably notice within a few runs -
+but "probably" is why the deterministic one is the one that carries the claim.
+
+**WHAT TO DO IF YOU HIT IT ANYWAY**
+
+- Still handle `LockBusy` and retry with backoff. It is a refusal, not a
+  guarantee, and a library that can be interrupted should not assume it was not.
+- **Do not raise your timeout to "fix" a stall.** Lengthening the timeout
+  lengthens the block. A shorter timeout fails fast and the retry succeeds.
+
+**STATUS:** fixed. `release()` no longer abandons a lock to a concurrent reader,
+so a process can no longer find its own live PID in a lock it should be able to
+take. Cause identified, mechanism reproduced by a test that fails on the old
+code, and the previous "cause unknown" conclusion retracted.
 
 ---
 
 ## Known gaps - still open, not fixed
 
-- **Lock liveness is not guaranteed.** See finding 9: under contention a writer
-  can block on its own lock until its timeout, then fail with `LockBusy`. No
-  data is lost; the write simply does not happen. Cause unknown.
 - **NFS is not safe for locking.** `O_EXCL` is not guaranteed atomic there. Not
   tested, not claimed. The module documents the boundary; a real fix means a
   different backend.
