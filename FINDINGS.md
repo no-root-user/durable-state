@@ -162,7 +162,9 @@ UTF-8 without BOM, and excludes binary files from the encoding check.
 **PROOF** Two tests: a clean package exits 0, and a package with one modified
 byte exits 1 and *names the file*. A checker that only ever says OK is not a
 checker. The first run of that verifier also flagged its own `.mp4` as invalid
-UTF-8, which is how the binary-exclusion rule got written.
+UTF-8, which is how the binary-exclusion rule got written. That demo file has
+since been removed, once the write-up in README covered the same ground; the
+sentence is kept because the binary-exclusion rule still exists because of it.
 
 ---
 
