@@ -42,6 +42,18 @@ CASES = [
     ("relative path", 'P = "durable_state/atomicio.py"', False),
     ("regex example in docs", 'R = r"[A-Za-z]:\\\\" + os.sep', False),
     ("prose about windows", 'TXT = "write to D: drive, then run"', False),
+    # regressions from a real false positive: a word ending in a single letter,
+    # then a colon, then an escape sequence, looks like drive D + separator.
+    ("prose ending in d: then newline", 'assert x, "writer processes failed:\\n" + y', False),
+    ("prose ending in k: then newline", 'msg = "acquire() raises on a vanished lock:\\n%s" % e', False),
+    ("prose ending in h: then newline", 'm = "unexpected crash:\\n%s" % e', False),
+    ("format spec then escape", 'L = "%s %04d\\n" % (tag, i)', False),
+    # and the real thing must still fire. One escape level: these sample strings
+    # are plain literals, so a doubled backslash here means two backslashes in
+    # the sample, which no drive-letter pattern should match.
+    ("quoted drive path", 'P = "D:\\Vi\\vika\\scripts\\locks.py"', True),
+    ("raw drive path", 'P = r"C:\\Users\\me\\file.txt"', True),
+    ("drive path at line start", 'D:\\Vi\\vika', True),
     ("utf8 cyrillic", 'X = "\u041f\u0440\u0438\u0432\u0435\u0442"', False),
 ]
 

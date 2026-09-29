@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import time
 import uuid
 from contextlib import contextmanager
@@ -109,23 +110,41 @@ def is_locked(locks_dir: str | os.PathLike, name: str) -> bool:
 
 
 def lock_info(locks_dir: str | os.PathLike, name: str) -> dict | None:
-    """Introspection for a dashboard. Never raises."""
+    """Introspection for a dashboard. Never raises - it says so, so it must.
+
+    It is called from the LockBusy message, i.e. on a path where an exception
+    would replace the real diagnosis with a confusing one. A lock can also
+    disappear between the exists() check and stat(), which is not exotic when
+    several processes are fighting over the same name.
+    """
     p = _lock_path(locks_dir, name)
-    if not p.exists():
+    try:
+        age = round(time.time() - p.stat().st_mtime, 3)
+    except OSError:
         return None
     info = _read_owner(p)
     if info is None:
-        return {"state": "empty", "age": round(time.time() - p.stat().st_mtime, 3)}
+        return {"state": "empty", "age": age}
     info = dict(info)
     info["state"] = "held"
-    info["age"] = round(time.time() - p.stat().st_mtime, 3)
+    info["age"] = age
     info["pid_alive"] = _pid_alive(info.get("pid", -1)) if info.get("host") == socket.gethostname() else None
     return info
 
 
 def _is_stale(path: Path, owner: dict | None) -> bool:
-    """Decide whether an existing lock is abandoned. Conservative on purpose."""
-    age = time.time() - path.stat().st_mtime
+    """Decide whether an existing lock is abandoned. Conservative on purpose.
+
+    Returns True if the lock is gone, because "gone" is not a reason to fail -
+    the caller should just retry and win it. That case is real: a stress test
+    found _is_stale() raising FileNotFoundError from path.stat() whenever the
+    holder released in the microsecond between our os.open() and this call.
+    A benign race turned into a crash in the caller's face.
+    """
+    try:
+        age = time.time() - path.stat().st_mtime
+    except OSError:
+        return True  # vanished underneath us: treat as stealable, caller retries
     if owner is None:
         # Empty or unparsable. A fresh one means the owner is still writing.
         return age > EMPTY_GRACE
@@ -195,6 +214,15 @@ def acquire(locks_dir: str | os.PathLike, name: str, timeout: float = 5.0, poll:
             time.sleep(poll)
 
 
+def _dbg(event: str, **kw) -> None:
+    """Opt-in forensics. Silent unless DURABLE_STATE_DEBUG is set."""
+    try:
+        sys.stderr.write("DBG %s %s\n" % (event, json.dumps(kw, ensure_ascii=False, default=str)))
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
 def release(locks_dir: str | os.PathLike, name: str, record: dict) -> bool:
     """
     Release the lock ONLY if we still own it.
@@ -205,15 +233,34 @@ def release(locks_dir: str | os.PathLike, name: str, record: dict) -> bool:
     now legitimately holds.
     """
     path = _lock_path(locks_dir, name)
+    debug = bool(os.environ.get("DURABLE_STATE_DEBUG"))
     if not path.exists():
+        if debug:
+            _dbg("release.missing", name=name, mypid=os.getpid())
         return False
     current = _read_owner(path)
-    if current is None or current.get("token") != record.get("token"):
+    if current is None:
+        if debug:
+            _dbg("release.unreadable", name=name, mypid=os.getpid())
+        return False  # not ours any more
+    if current.get("token") != record.get("token"):
+        if debug:
+            _dbg(
+                "release.token_mismatch",
+                name=name,
+                mypid=os.getpid(),
+                my_token=record.get("token"),
+                disk_token=current.get("token"),
+                disk_pid=current.get("pid"),
+            )
         return False  # not ours any more
     try:
         os.unlink(str(path))
         return True
-    except OSError:
+    except OSError as exc:
+        if debug:
+            _dbg("release.unlink_failed", name=name, errno=exc.errno,
+                 winerr=getattr(exc, "winerror", None))
         return False
 
 

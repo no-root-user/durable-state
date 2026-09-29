@@ -126,8 +126,21 @@ def format_report(report: dict) -> str:
     return "\n".join(lines)
 
 
+USAGE = """usage: python -m durable_state.verify [DIR]
+
+Check every file in DIR against checksums.sha256, and check that the text files
+are strict UTF-8 without a BOM.
+
+  DIR   directory holding the manifest. Default: the current directory.
+
+exit 0 = intact, exit 1 = damaged or unreadable."""
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE)
+        return 0
     base = Path(argv[0]) if argv else Path.cwd()
     report = verify_dir(base)
     print(format_report(report))

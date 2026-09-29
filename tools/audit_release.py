@@ -42,7 +42,15 @@ SECRET_PATTERNS = [
 # demanded a doubled separator and could never match a real Windows path. The
 # single most important check in this file was dead code that always passed.
 # Anything added here must be tested with tools/audit_selftest.py first.
-WINDOWS_ABS_PATH = re.compile(r"[A-Za-z]:\\(?:[A-Za-z0-9_.-]+\\)*[A-Za-z0-9_.-]+")
+# A Windows drive letter must NOT be preceded by a word character. Without that
+# guard this pattern matches the tail of ordinary English text inside a string
+# literal: an assertion message that ends with a word, then a colon, then a
+# newline escape (backslash, n) looks exactly like drive D followed by a
+# separator. That false positive blocked publication of two perfectly clean
+# test files. Real paths appear as a quoted drive-letter string, a raw string,
+# or at the start of a line, so a word character before the letter is a
+# reliable signal that this is prose and not a path.
+WINDOWS_ABS_PATH = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z]:\\(?:[A-Za-z0-9_.-]+\\)*[A-Za-z0-9_.-]+")
 USER_HOME_PATH = re.compile(r"/(?:home|Users)/[A-Za-z0-9_.-]+/")
 MOJIBAKE_MARKERS = ["\ufffd", "\u0420\u045a", "\u0420\u0455"]
 

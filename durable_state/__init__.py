@@ -9,7 +9,22 @@ from .atomicio import (
     atomic_write_text,
 )
 from .locks import FileLock, LockBusy, is_locked, lock_info
-from .verify import verify_dir
+
+
+def __getattr__(name: str):
+    """verify_dir is imported lazily, on purpose.
+
+    Importing .verify here made `python -m durable_state.verify <dir>` print
+    RuntimeWarning: the package imported the submodule, then runpy executed it
+    again as __main__. The function is lazy so the documented CLI runs clean.
+
+    PEP 562, so this works on the Python 3.9 floor we claim.
+    """
+    if name == "verify_dir":
+        from .verify import verify_dir
+
+        return verify_dir
+    raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 __version__ = "0.1.0"
 __all__ = [

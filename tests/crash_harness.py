@@ -3,8 +3,17 @@
 Crash harness: kill a writer mid-write and prove readers never see garbage.
 
 The unit tests simulate a failed write by making os.replace() raise. That is a
-mock. This harness uses the real thing: a child process is SIGKILLed at a random
-moment while it is writing, and the parent then inspects the target file.
+mock. This harness uses the real thing: a child process is killed outright at a
+random moment while it is writing, and the parent then inspects the target file.
+
+Platform note, because the word "SIGKILL" is wrong on Windows and this file
+used to claim it everywhere. signal.SIGKILL does not exist on Windows at all.
+The kill mechanism is therefore platform-specific, and the harness PRINTS which
+one it used, so the evidence is in the output rather than assumed:
+  POSIX   - os.kill(pid, SIGKILL) against a forked child
+  Windows - Popen.kill(), which is TerminateProcess
+Both are abrupt and uncatchable: no finally blocks, no buffered writes flushed,
+no cleanup. That is the property the test needs.
 
 What must hold after every kill, without exception:
   1. The target is EITHER the old content OR the complete new content.
@@ -91,6 +100,15 @@ def main() -> int:
     random.seed(1234)  # reproducible failures
     results = {"old": 0, "new": 0, "CORRUPT": 0}
     leftovers = 0
+
+    # Say out loud how this platform kills. Otherwise a reader assumes SIGKILL
+    # everywhere, and on Windows that is not what happened.
+    probe = spawn(target)
+    mechanism = "os.kill(pid, SIGKILL)" if isinstance(probe, int) else "Popen.kill() -> TerminateProcess"
+    if not isinstance(probe, int):
+        probe.wait()
+    print("kill mechanism: %s (signal.SIGKILL exists here: %s)"
+          % (mechanism, hasattr(signal, "SIGKILL")))
 
     # POSITIVE CONTROL. Without this the harness is worthless: if the child
     # never finished a single write, every round would report "old" and the
