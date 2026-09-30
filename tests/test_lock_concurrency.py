@@ -90,11 +90,15 @@ def _child(tmp: Path) -> Path:
 
 
 def _spawn(script: Path, lockdir: Path, marker: Path, cycles: int, hold: float, n: int):
+    env = dict(os.environ)
+    # Ask the lock to name every branch it uses to steal. Silent otherwise.
+    env["DURABLE_STATE_DEBUG"] = "steal"
     return [
         subprocess.Popen(
             [sys.executable, str(script), str(lockdir), str(marker), str(cycles), str(hold)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=env,
         )
         for _ in range(n)
     ]
@@ -114,10 +118,14 @@ def test_mutual_exclusion_across_processes(tmp_path):
     for k in kids:
         out, err = k.communicate(timeout=600)
         text = out.decode("utf-8", "replace")
+        errtext = (err or b"").decode("utf-8", "replace")
         reported = re.search(r"VIOLATIONS=(\d+)", text)
         evidence.extend(
             line.strip() for line in text.splitlines() if line.startswith("EVIDENCE ")
         )
+        steals = [
+            line.strip() for line in errtext.splitlines() if "steal" in line and "DBG" in line
+        ]
         if reported is None:
             # A child that died never printed its count. The first version of
             # this test counted that as a mutual-exclusion violation and threw
@@ -130,6 +138,7 @@ def test_mutual_exclusion_across_processes(tmp_path):
             crashes.append("exit=%s\n%s" % (k.returncode, "\n".join(tail[-6:])))
         elif int(reported.group(1)) > 0:
             violations += 1
+            evidence.extend(steals)
     assert not crashes, "a child died instead of reporting:\n%s" % "\n---\n".join(crashes)
     assert violations == 0, "a process saw two holders inside the lock:\n%s" % "\n".join(
         evidence

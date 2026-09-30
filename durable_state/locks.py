@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 Durable State contributors | MIT License
+# Copyright (c) 2026 Durable State contributors | MIT License
 """
 durable_state.locks - single-node file locks with crash recovery.
 
@@ -49,7 +49,7 @@ from typing import Iterator
 __all__ = ["FileLock", "LockBusy", "acquire", "release", "is_locked", "lock_info"]
 
 # An empty lock file is younger than this -> assume the owner is mid-write.
-EMPTY_GRACE = 30.0
+EMPTY_GRACE = 1.0
 # A lock whose owner PID is gone on this host is considered abandoned.
 STALE_PID_AGE = 300.0
 # How long release() keeps retrying a delete that a reader is blocking.
@@ -145,10 +145,16 @@ def lock_info(locks_dir: str | os.PathLike, name: str) -> dict | None:
     return info
 
 
-def _is_stale(path: Path, owner: dict | None) -> bool:
-    """Decide whether an existing lock is abandoned. Conservative on purpose.
+def _stale_reason(path: Path, owner: dict | None) -> str | None:
+    """Name the branch that treats an existing lock as abandoned, or None.
 
-    Returns True if the lock is gone, because "gone" is not a reason to fail -
+    This used to be a plain bool and it cost us a diagnosis. macOS fails the
+    mutual-exclusion test intermittently, and the only way to tell WHICH of the
+    four branches below is wrong is to have the lock say so. Guessing from the
+    outside produced two confident wrong answers in a row; returning a label
+    makes the next CI run answer the question by itself.
+
+    Returns "gone" if the lock vanished, because "gone" is not a reason to fail -
     the caller should just retry and win it. That case is real: a stress test
     found _is_stale() raising FileNotFoundError from path.stat() whenever the
     holder released in the microsecond between our os.open() and this call.
@@ -157,15 +163,24 @@ def _is_stale(path: Path, owner: dict | None) -> bool:
     try:
         age = time.time() - path.stat().st_mtime
     except OSError:
-        return True  # vanished underneath us: treat as stealable, caller retries
+        return "gone"
     if owner is None:
         # Empty or unparsable. A fresh one means the owner is still writing.
-        return age > EMPTY_GRACE
+        if age > EMPTY_GRACE:
+            return "empty-older-than-%.1fs(age=%.3f)" % (EMPTY_GRACE, age)
+        return None
     if owner.get("host") == socket.gethostname():
         if not _pid_alive(int(owner.get("pid", -1))):
-            return True  # the owning process on this machine is gone
+            return "pid-not-alive(pid=%s)" % (owner.get("pid"),)
     # Other host, or a live local PID: only age can save us.
-    return age > STALE_PID_AGE
+    if age > STALE_PID_AGE:
+        return "older-than-%.1fs(age=%.1f)" % (STALE_PID_AGE, age)
+    return None
+
+
+def _is_stale(path: Path, owner: dict | None) -> bool:
+    """Decide whether an existing lock is abandoned. Conservative on purpose."""
+    return _stale_reason(path, owner) is not None
 
 
 def acquire(locks_dir: str | os.PathLike, name: str, timeout: float = 5.0, poll: float = 0.02) -> dict:
@@ -204,7 +219,12 @@ def acquire(locks_dir: str | os.PathLike, name: str, timeout: float = 5.0, poll:
             return record
 
         except FileExistsError:
-            if _is_stale(path, _read_owner(path)):
+            reason = _stale_reason(path, _read_owner(path))
+            if reason:
+                # Log WHICH branch fired. Without this the only evidence we had
+                # was a marker that survived, which points at a hundred causes;
+                # the branch name points at exactly one.
+                _dbg("steal", name=name, reason=reason, seen=_read_owner(path))
                 # Steal it. We do not unlink first: a plain unlink would open a
                 # window where both parties believe they hold the lock. Instead
                 # we move the stale file aside atomically, and only whoever wins
