@@ -306,7 +306,6 @@ def test_version_matches_pyproject(tmp_path: Path) -> None:
     Keeping two copies is a choice; letting them silently disagree is not.
     """
     import re
-    import tomllib
 
     from durable_state import __version__
 
