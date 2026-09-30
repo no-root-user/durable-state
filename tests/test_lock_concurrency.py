@@ -34,7 +34,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 CHILD_SRC = '''
-import os, sys, time
+import json, os, sys, time
 from pathlib import Path
 sys.path.insert(0, %r)
 from durable_state.locks import acquire, release, _lock_path
@@ -45,6 +45,7 @@ cycles = int(sys.argv[3])
 hold = float(sys.argv[4])
 lockfile = _lock_path(Path(lockdir), "mx")
 violations = 0
+leaks = 0
 evidence = []
 
 def _read(p):
@@ -53,31 +54,69 @@ def _read(p):
     except OSError:
         return "unreadable"
 
+def _marker_pid():
+    try:
+        return int(marker.read_text(encoding="utf-8").strip().split("=", 1)[1])
+    except (OSError, ValueError, IndexError):
+        return None
+
+def _lock_pid():
+    try:
+        return int(json.loads(lockfile.read_text(encoding="utf-8"))["pid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
 for i in range(cycles):
     rec = acquire(lockdir, "mx", timeout=25)
+    mine = False
     try:
         try:
             fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-            # The marker used to be empty, so a violation said only "something
-            # was there" - a leftover from a dead child, an unlink that failed,
-            # and a real double hold all looked identical. Naming the owner is
-            # the difference between a diagnosis and a shrug.
             os.write(fd, ("pid=%%d" %% os.getpid()).encode("ascii"))
             os.close(fd)
+            mine = True
         except FileExistsError:
-            violations += 1
-            evidence.append("me=%%d marker=%%s lock=%%s" %% (
-                os.getpid(), _read(marker), _read(lockfile)))
+            # "A marker exists" is not the invariant. The invariant is that no
+            # two processes are inside at once, so what matters is whether the
+            # marker belongs to somebody who is still holding the lock. A
+            # marker left behind by a process that has already finished is
+            # litter, not a violation - counting it is how this test spent
+            # three CI runs blaming the lock for a cleanup problem, and
+            # macOS failed 3 legs in a row for a reason the lock never
+            # committed. Instrumentation showed every steal on macOS was
+            # reason "gone": the lock had been released, so taking it was
+            # correct. Not one live lock was ever stolen.
+            mpid = _marker_pid()
+            lpid = _lock_pid()
+            if mpid is not None and mpid != lpid and not _alive(mpid):
+                leaks += 1
+                try:
+                    marker.unlink()
+                except OSError:
+                    pass
+            else:
+                violations += 1
+                evidence.append("me=%%d marker=%%s lock=%%s" %% (
+                    os.getpid(), _read(marker), _read(lockfile)))
         time.sleep(hold)
     finally:
-        # marker goes BEFORE the lock, so a legitimate hand-off cannot look
-        # like a violation
-        try:
-            marker.unlink()
-        except OSError:
-            pass
+        # Only ever remove OUR marker. The unconditional unlink this replaced
+        # let a process delete a live owner's marker, which breaks the very
+        # invariant the test exists to check.
+        if mine:
+            try:
+                marker.unlink()
+            except OSError:
+                pass
         release(lockdir, "mx", rec)
-print("VIOLATIONS=%%d" %% violations)
+print("VIOLATIONS=%%d LEAKS=%%d" %% (violations, leaks))
 for e in evidence:
     print("EVIDENCE " + e)
 ''' % (str(ROOT),)
