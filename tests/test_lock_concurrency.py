@@ -37,21 +37,37 @@ CHILD_SRC = '''
 import os, sys, time
 from pathlib import Path
 sys.path.insert(0, %r)
-from durable_state.locks import acquire, release
+from durable_state.locks import acquire, release, _lock_path
 
 lockdir = sys.argv[1]
 marker = Path(sys.argv[2])
 cycles = int(sys.argv[3])
 hold = float(sys.argv[4])
+lockfile = _lock_path(Path(lockdir), "mx")
 violations = 0
+evidence = []
+
+def _read(p):
+    try:
+        return p.read_text(encoding="utf-8").strip().replace("\\n", " ")
+    except OSError:
+        return "unreadable"
+
 for i in range(cycles):
     rec = acquire(lockdir, "mx", timeout=25)
     try:
         try:
             fd = os.open(str(marker), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            # The marker used to be empty, so a violation said only "something
+            # was there" - a leftover from a dead child, an unlink that failed,
+            # and a real double hold all looked identical. Naming the owner is
+            # the difference between a diagnosis and a shrug.
+            os.write(fd, ("pid=%%d" %% os.getpid()).encode("ascii"))
             os.close(fd)
         except FileExistsError:
             violations += 1
+            evidence.append("me=%%d marker=%%s lock=%%s" %% (
+                os.getpid(), _read(marker), _read(lockfile)))
         time.sleep(hold)
     finally:
         # marker goes BEFORE the lock, so a legitimate hand-off cannot look
@@ -62,6 +78,8 @@ for i in range(cycles):
             pass
         release(lockdir, "mx", rec)
 print("VIOLATIONS=%%d" %% violations)
+for e in evidence:
+    print("EVIDENCE " + e)
 ''' % (str(ROOT),)
 
 
@@ -92,10 +110,14 @@ def test_mutual_exclusion_across_processes(tmp_path):
     kids = _spawn(script, lockdir, marker, cycles=8, hold=0.01, n=6)
     violations = 0
     crashes = []
+    evidence = []
     for k in kids:
         out, err = k.communicate(timeout=600)
         text = out.decode("utf-8", "replace")
         reported = re.search(r"VIOLATIONS=(\d+)", text)
+        evidence.extend(
+            line.strip() for line in text.splitlines() if line.startswith("EVIDENCE ")
+        )
         if reported is None:
             # A child that died never printed its count. The first version of
             # this test counted that as a mutual-exclusion violation and threw
@@ -109,7 +131,9 @@ def test_mutual_exclusion_across_processes(tmp_path):
         elif int(reported.group(1)) > 0:
             violations += 1
     assert not crashes, "a child died instead of reporting:\n%s" % "\n---\n".join(crashes)
-    assert violations == 0, "a process saw two holders inside the lock"
+    assert violations == 0, "a process saw two holders inside the lock:\n%s" % "\n".join(
+        evidence
+    )
     assert not marker.exists(), "marker left behind"
 
 
