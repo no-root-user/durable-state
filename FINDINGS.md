@@ -380,20 +380,46 @@ it, and both times no amount of green output would have told us.
 - **The verifier detects drift, not intent.** A hash tells you a file changed,
   not that the change was an improvement. Someone with write access can corrupt
   a file and re-sign the manifest.
-- **macOS fails the mutual-exclusion test intermittently, and the cause is not
-  established.** `test_mutual_exclusion_across_processes` failed on 3 of 3 macOS
-  legs in run `36653444304` and on 1 of 3 in run `36653979025`, while Linux and
-  Windows passed every leg both times. A child entered the critical section and
-  found the marker already present, so this is a real overlap, not a crash.
-  Rejected hypothesis: the empty-lock grace period. Setting `EMPTY_GRACE` to 0 on
-  Windows did not reproduce it, which rules out the cheap explanation and leaves
-  the question open. Rejected hypothesis: `_pid_alive` - on POSIX it is
-  `os.kill(pid, 0)`, which needs no `/proc`. A test fix was needed first to see
-  any of this: the original test counted a crashed child as a violation and
-  discarded stderr, so it named a cause it had never looked at.
-  **macOS is therefore not claimed as verified.**
+- **macOS still fails the mutual-exclusion test intermittently. The lock is
+  exonerated; the test's own marker protocol is under suspicion - and that is
+  not yet a fix, it is a narrowed search.** What CI actually established, in
+  order, with run numbers so it can be re-checked:
+  - `36653444304`: 3 of 3 macOS legs failed. Two separate tests were lying
+    about cause. `test_locks.py` held an open read handle to block `unlink`,
+    which is a Windows-only trick - on POSIX an open descriptor does not stop
+    a rename, so the test was asserting the platform, not the code. And
+    `test_lock_concurrency.py` counted any child that failed to print
+    `VIOLATIONS=0` as a mutual-exclusion violation while discarding its
+    stderr, so it named a cause nobody had looked at.
+  - `36653979025`, `36654674775`: after fixing both, the crash and the violation
+    separated. Real violations remained on macOS, so they were real.
+  - The marker was empty, so a violation said only "something was there".
+    Giving it a pid, and printing the lock record beside it, showed most lines
+    read `me=N marker=pid=M lock=... "pid": N` - the observer was the recorded
+    owner. The lock was fine; the marker was litter.
+  - **The empty-lock grace period was tested and cleared.** `EMPTY_GRACE` was
+    raised from 1 s to 30 s (`99c0b61`). macOS did not go green - 2 of 3 legs
+    still failed, and `test_disappearing_lock_does_not_crash_acquire` started
+    failing on Windows 3.13, which is the honest cost of a 30 s window. The
+    experiment was reverted.
+  - **The steal path is now instrumented** (`0e89657`): `_stale_reason()` names
+    the branch that decided, and `acquire()` logs it under
+    `DURABLE_STATE_DEBUG`. Across every failing macOS leg, **every** steal was
+    `reason: "gone"` - the file had already been released, so taking it was
+    correct. **No live lock was ever stolen.** `pid-not-alive`,
+    `empty-older-than-*` and `older-than-300s` never fired once.
+  - Remaining signature after fixing the unconditional `unlink` (`55aa2ab`):
+    `me=N marker=pid=M lock=... "pid": N` where `M` is still **alive** and is
+    not the current holder. A leaked marker is now separated from a real second
+    owner, and this is the only shape left. One of 3 macOS legs then passed.
+  - **Not established:** why `M` is alive and not holding the lock. Stopping
+    here is deliberate. macOS is **not claimed as verified**.
+- **`test_concurrent.py::test_concurrent_append_copy_strategy` failed once on
+  Windows 3.9** (`36655570109`), unrelated to the lock work: different file,
+  different subsystem, one occurrence, not investigated. Recorded so it is not
+  lost, not because it is understood.
 - **Linux is now demonstrated, not expected.** CI passes 3 of 3 legs.
-  Windows 3 of 3. See README "CI status" for the table.
+  Windows 3 of 3 except the single occurrence above. See README "CI status".
 - **Tags `v0.1.1` and `v0.1.2` carry the wrong version in their own metadata.** The
   commits they point at have `__version__ = "0.1.0"` in
   `durable_state/__init__.py` and `version = "0.1.0"` in `pyproject.toml`,

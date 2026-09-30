@@ -172,11 +172,13 @@ Here is what the runs actually say, taken from run `36653979025`:
 
 - **Windows and Linux are demonstrated**, not expected.
 - **macOS is not.** `test_mutual_exclusion_across_processes` fails intermittently
-  there: a process entered the critical section and found the marker already in
-  place. The mechanism is **not yet established**. Widening the empty-lock grace
-  period to zero on Windows did not reproduce it, so the obvious explanation is
-  not the explanation; see FINDINGS "Known gaps". A wrong diagnosis written down
-  confidently would cost more than the open question, so it stays open.
+  there. The lock itself is **exonerated by instrumentation**: with the steal
+  path logging which branch fires, every macOS steal was `reason: "gone"` - the
+  lock had already been released, so taking it was correct. No live lock was
+  ever stolen. What is left points at the test's own marker protocol, and that
+  is not yet a fix. Three test defects had to be fixed first before any of it
+  was visible. See FINDINGS "Known gaps". A tidy sentence written here instead
+  of that would cost more than the open question, so it stays open.
 - `tools/local_ci.py` still runs the same suite locally, and still prints
   `SUMMARY (Windows only - not a cross-platform result)`.
 
