@@ -17,12 +17,13 @@ venv/
 htmlcov/
 .crash/
 
-# CI definitions are kept locally and run via tools\local_ci.py.
-# Reason: the deploy token for this repository lacks GitHub's `workflow`
-# scope, and GitHub refuses workflow files from tokens without it. They are
-# not renamed or shimmed to evade the restriction. To enable real CI: give
-# the token the `workflow` scope, then `git add -f .github/workflows/ci.yml`.
-.github/workflows/
+# CI definitions ARE tracked. They used to be ignored here, with a note that the
+# deploy token lacked GitHub's `workflow` scope. That blocker is gone: the token
+# now carries `workflows: write`, and ci.yml is committed for real. The line is
+# deleted rather than left behind, because an ignore entry that quietly blocks
+# the pipeline is the same shape as finding 10: a stale artefact that keeps
+# explaining itself as if it were still current.
+# tools\local_ci.py stays, for running the same matrix before a push.
 
 # Atomic-write temp files (should never be committed, but if a crash left one
 # behind, it is evidence, not source)
