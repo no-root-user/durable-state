@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Durable State contributors | MIT License
+﻿# Copyright (c) 2026 Durable State contributors | MIT License
 """
 durable_state.locks - single-node file locks with crash recovery.
 
@@ -49,7 +49,7 @@ from typing import Iterator
 __all__ = ["FileLock", "LockBusy", "acquire", "release", "is_locked", "lock_info"]
 
 # An empty lock file is younger than this -> assume the owner is mid-write.
-EMPTY_GRACE = 1.0
+EMPTY_GRACE = 30.0
 # A lock whose owner PID is gone on this host is considered abandoned.
 STALE_PID_AGE = 300.0
 # How long release() keeps retrying a delete that a reader is blocking.
