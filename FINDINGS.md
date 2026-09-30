@@ -380,9 +380,20 @@ it, and both times no amount of green output would have told us.
 - **The verifier detects drift, not intent.** A hash tells you a file changed,
   not that the change was an improvement. Someone with write access can corrupt
   a file and re-sign the manifest.
-- **Linux/macOS behaviour is asserted by CI, not yet confirmed by a run this
-  author watched pass.** Until CI is green on those platforms, treat it as
-  expected rather than demonstrated.
+- **macOS fails the mutual-exclusion test intermittently, and the cause is not
+  established.** `test_mutual_exclusion_across_processes` failed on 3 of 3 macOS
+  legs in run `36653444304` and on 1 of 3 in run `36653979025`, while Linux and
+  Windows passed every leg both times. A child entered the critical section and
+  found the marker already present, so this is a real overlap, not a crash.
+  Rejected hypothesis: the empty-lock grace period. Setting `EMPTY_GRACE` to 0 on
+  Windows did not reproduce it, which rules out the cheap explanation and leaves
+  the question open. Rejected hypothesis: `_pid_alive` - on POSIX it is
+  `os.kill(pid, 0)`, which needs no `/proc`. A test fix was needed first to see
+  any of this: the original test counted a crashed child as a violation and
+  discarded stderr, so it named a cause it had never looked at.
+  **macOS is therefore not claimed as verified.**
+- **Linux is now demonstrated, not expected.** CI passes 3 of 3 legs.
+  Windows 3 of 3. See README "CI status" for the table.
 - **Tags `v0.1.1` and `v0.1.2` carry the wrong version in their own metadata.** The
   commits they point at have `__version__ = "0.1.0"` in
   `durable_state/__init__.py` and `version = "0.1.0"` in `pyproject.toml`,

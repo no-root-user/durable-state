@@ -93,9 +93,9 @@ inspection. That is in `FINDINGS.md` with the full list.
 - **`atomic_append_text` above 8 MB is O(size)** - it copies the file. The
   threshold bounds peak memory at the cost of I/O. The strategy used is
   returned, so you can log it.
-- **Verified on Windows (NTFS), and honestly nowhere else yet.** The suite has
-  been run on Windows only. The CI workflow that would cover Linux and macOS is
-  written but not yet running, so this project does not claim those platforms.
+- **Verified on Windows (NTFS) and Linux; not on macOS.** CI runs the suite on
+  3 operating systems x 3 Python versions. Windows and Linux pass every leg.
+  macOS fails intermittently in the mutual-exclusion test and is **not** claimed.
   See "CI status" below.
 - **The verifier detects drift, not intent.** A hash tells you a file changed,
   not that a change was good.
@@ -156,14 +156,28 @@ rather than hiding it.
 
 ### CI status
 
-`.github/workflows/ci.yml` is present in the working tree and is **not pushed**:
-the deploy token in use lacks GitHub's `workflow` scope, and GitHub refuses
-workflow files from tokens without it. The file has not been renamed or shimmed
-to get around the restriction.
+`.github/workflows/ci.yml` is tracked and runs on every push: 3 operating
+systems x 3 Python versions, plus a real SIGKILL crash simulation and a
+self-test of the verifier. It is no longer a local file - the token carries
+`workflows: write`, and the ignore entry that kept the workflow out of the
+repository has been deleted rather than left to block it again.
 
-Until that changes, `tools/local_ci.py` runs the same suite locally, and it
-prints `SUMMARY (Windows only - not a cross-platform result)` - it will not
-claim anything about platforms it has not run on. Nothing in this README claims
-Linux or macOS are demonstrated; see FINDINGS, "Known gaps".
+Here is what the runs actually say, taken from run `36653979025`:
+
+| | py3.9 | py3.11 | py3.13 |
+|---|---|---|---|
+| windows-latest | pass | pass | pass |
+| ubuntu-latest | pass | pass | pass |
+| macos-latest | pass | pass | **fail (intermittent)** |
+
+- **Windows and Linux are demonstrated**, not expected.
+- **macOS is not.** `test_mutual_exclusion_across_processes` fails intermittently
+  there: a process entered the critical section and found the marker already in
+  place. The mechanism is **not yet established**. Widening the empty-lock grace
+  period to zero on Windows did not reproduce it, so the obvious explanation is
+  not the explanation; see FINDINGS "Known gaps". A wrong diagnosis written down
+  confidently would cost more than the open question, so it stays open.
+- `tools/local_ci.py` still runs the same suite locally, and still prints
+  `SUMMARY (Windows only - not a cross-platform result)`.
 
 MIT. Take it, change it, sell it - keep the license text.
