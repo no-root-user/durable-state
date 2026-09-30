@@ -23,6 +23,7 @@ mistake in the first version of this test.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -90,11 +91,24 @@ def test_mutual_exclusion_across_processes(tmp_path):
 
     kids = _spawn(script, lockdir, marker, cycles=8, hold=0.01, n=6)
     violations = 0
+    crashes = []
     for k in kids:
-        out, _err = k.communicate(timeout=600)
+        out, err = k.communicate(timeout=600)
         text = out.decode("utf-8", "replace")
-        if "VIOLATIONS=0" not in text:
+        reported = re.search(r"VIOLATIONS=(\d+)", text)
+        if reported is None:
+            # A child that died never printed its count. The first version of
+            # this test counted that as a mutual-exclusion violation and threw
+            # the stderr away, so on macOS it reported "a process saw two
+            # holders inside the lock" for a failure that had not been looked
+            # at. An instrument that names the wrong cause is worse than no
+            # instrument: it sends the reader to debug the lock instead of the
+            # thing that actually broke.
+            tail = (err or b"").decode("utf-8", "replace").strip().splitlines()
+            crashes.append("exit=%s\n%s" % (k.returncode, "\n".join(tail[-6:])))
+        elif int(reported.group(1)) > 0:
             violations += 1
+    assert not crashes, "a child died instead of reporting:\n%s" % "\n---\n".join(crashes)
     assert violations == 0, "a process saw two holders inside the lock"
     assert not marker.exists(), "marker left behind"
 

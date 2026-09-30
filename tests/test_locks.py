@@ -230,8 +230,30 @@ def test_release_gives_up_eventually_on_a_permanent_blocker(tmp_path: Path) -> N
     rec = acquire(tmp_path, "memory")
     path = _lock_path(tmp_path, "memory")
 
-    blocker = open(path, "r", encoding="utf-8")
-    blocker.read()
+    # The blocker has to be made the way THIS platform makes deletion fail, and
+    # the two ways are opposites. Windows refuses to unlink a file another
+    # handle has open. POSIX allows exactly that: the name disappears and the
+    # reader keeps a valid descriptor. So the Windows trick - the only one we
+    # had - cannot create the precondition this test needs anywhere else, and
+    # the test failed on Linux and macOS while asserting that release()
+    # succeeded. It was asserting our own platform, not our code.
+    if os.name == "nt":
+        blocker = open(path, "r", encoding="utf-8")
+        blocker.read()
+
+        def release_blocker() -> None:
+            blocker.close()
+    else:
+        # A directory without write permission does block it: unlink() has to
+        # modify the parent directory, and returns EACCES. This is refused for
+        # root, which would simply bypass the check and fake a pass.
+        if os.geteuid() == 0:
+            pytest.skip("root ignores directory permissions, cannot block unlink")
+        os.chmod(tmp_path, 0o500)
+
+        def release_blocker() -> None:
+            os.chmod(tmp_path, 0o700)
+
     try:
         started = time.time()
         ok = release(tmp_path, "memory", rec)
@@ -240,7 +262,7 @@ def test_release_gives_up_eventually_on_a_permanent_blocker(tmp_path: Path) -> N
         assert waited < 10.0, "release() blocked for %0.1fs, it must be bounded" % waited
         assert is_locked(tmp_path, "memory"), "lock vanished although we could not delete it"
     finally:
-        blocker.close()
+        release_blocker()
 
     # Once the blocker is gone the lock is reclaimable: our own pid is in it,
     # but the file is old enough to count as abandoned.
